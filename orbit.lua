@@ -252,7 +252,15 @@ local function startInstantKill()
             return
         end
         
-        local target = GetClosestPlayer()
+        local target
+        if instantKillTarget and instantKillTarget.Character and instantKillTarget.Character:FindFirstChild("HumanoidRootPart") then
+            -- Jika ada target spesifik yang dipilih
+            target = instantKillTarget.Character
+        else
+            -- Jika tidak ada target spesifik, cari yang terdekat
+            target = GetClosestPlayer()
+        end
+        
         local root = player.Character.HumanoidRootPart
         local hum = player.Character.Humanoid
         
@@ -1455,20 +1463,83 @@ task.spawn(function()
 end)
 
 -- =======================================================
--- KILL TAB (YOUR INSTANT KILL LOGIC)
+-- KILL TAB (DENGAN SELECT PLAYER)
 -- =======================================================
 local killMainSection = KillTab:Section({
     Title = "Instant Kill System",
     Box = true,
 })
 
--- Instant Kill Toggle
+-- Variables untuk menyimpan player yang dipilih untuk instant kill
+local killSelectedPlayer = nil
+
+-- Player Selection Dropdown untuk Instant Kill
+local function updateKillDropdown()
+    local playersInGame = Players:GetPlayers()
+    local dropdownValues = {}
+    
+    for _, p in ipairs(playersInGame) do
+        if p ~= player then
+            table.insert(dropdownValues, {
+                Title = p.Name,
+                Desc = "Select for Instant Kill",
+                Icon = "target",
+                Value = p
+            })
+        end
+    end
+    
+    return dropdownValues
+end
+
+-- Create dropdown untuk Instant Kill
+local killPlayerDropdown = killMainSection:Dropdown({
+    Title = "Select Target",
+    Desc = "Choose a player to instant kill",
+    Values = updateKillDropdown(),
+    Value = nil,
+    AllowNone = true,
+    Callback = function(selected)
+        if selected then
+            killSelectedPlayer = selected.Value
+            instantKillTarget = killSelectedPlayer
+        else
+            killSelectedPlayer = nil
+            instantKillTarget = nil
+        end
+    end
+})
+
+killMainSection:Space()
+
+-- Instant Kill Selected Player Button
+killMainSection:Button({
+    Title = "Instant Kill Selected",
+    Icon = "skull",
+    Color = Color3.fromHex("#FF305D"),
+    Justify = "Center",
+    Callback = function()
+        if killSelectedPlayer then
+            -- Mengaktifkan instant kill untuk player tertentu
+            if not instantKillEnabled then
+                startInstantKill()
+            end
+        else
+            Message("Error", "Please select a player first", 3)
+        end
+    end
+})
+
+killMainSection:Space()
+
+-- Instant Kill Toggle (Auto closest player)
 local instantKillToggle = killMainSection:Toggle({
-    Title = "INSTANT KILL",
+    Title = "INSTANT KILL AUTO",
     Desc = "Enable instant kill on closest player",
     Value = false,
     Callback = function(state)
         if state then
+            instantKillTarget = nil -- Reset target untuk mode auto
             startInstantKill()
         else
             stopInstantKill()
@@ -1486,15 +1557,25 @@ local instantKillStatus = killMainSection:Paragraph({
     Color = "Red",
 })
 
--- Auto update status
+-- Auto update status dan dropdown
 task.spawn(function()
     while true do
+        killPlayerDropdown:Refresh(updateKillDropdown())
+        
         if instantKillEnabled then
-            instantKillStatus:Update({
-                Title = "Status: ACTIVE",
-                Desc = "Targeting closest player",
-                Color = "Green",
-            })
+            if instantKillTarget then
+                instantKillStatus:Update({
+                    Title = "Status: ACTIVE (Targeted)",
+                    Desc = "Targeting: " .. (instantKillTarget and instantKillTarget.Name or "None"),
+                    Color = "Green",
+                })
+            else
+                instantKillStatus:Update({
+                    Title = "Status: ACTIVE (Auto)",
+                    Desc = "Targeting closest player",
+                    Color = "Green",
+                })
+            end
         else
             instantKillStatus:Update({
                 Title = "Status: Idle",
@@ -1901,7 +1982,7 @@ windowControlGroup:Button({
 task.wait(1)
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "✅ ZeOrbitV4 Enhanced Loaded",
-    Text = "Now with Instant Kill & Fling features!\nClick the ZeOrbitV4 button to open menu.",
+    Text = "Succes\nClick the ZeOrbitV4 button to open menu.",
     Duration = 5
 })
 
