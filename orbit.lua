@@ -1,7 +1,9 @@
 -- ==================================================
--- SCRIPT: ZeOrbitV4 Game Hub (ULTRA OPTIMIZED)
+-- SCRIPT: ZeOrbitV4 Game Hub (ULTRA OPTIMIZED + NO FREEZE)
 -- FIX: Skin system only checks body parts when aura is ON
 -- FIX: Fling system menggunakan logika dari ZeFlingV2
+-- FIX: View logic menggunakan ZeView TSB (Camera Like Roblox)
+-- FIX: Menghapus duplikasi kode yang menyebabkan freeze
 -- ==================================================
 
 if game.PlaceId ~= 10449761463 then
@@ -125,9 +127,25 @@ local orbitRadius = 4.6
 local orbitSpeed = 100
 local defaultOrbitRadius = 4.6
 
--- View
+-- View - Menggunakan logika ZeView TSB (Camera Like Roblox)
 local viewingTarget = nil
-local isViewing = false
+local targetPart = nil
+
+-- Variable untuk kontrol kamera seperti Roblox
+local cameraOffset = Vector3.new(0, 2, -8)
+local targetOffset = Vector3.new(0, 2, -8)
+local isDragging = false
+local lastMousePosition = nil
+local mouseSensitivity = 0.2
+
+-- Untuk smooth zoom
+local currentZoom = 8
+local targetZoom = 8
+local zoomSpeed = 0.15
+
+-- Untuk smooth rotation
+local smoothRotationX = 0
+local smoothRotationY = 0
 
 -- Auto Skill
 local isAutoSkillEnabled = false
@@ -234,6 +252,147 @@ local function getRootPart(char)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     return hum and hum.RootPart
 end
+
+-- =======================================================
+-- VIEW FUNCTIONS - LOGIKA DARI ZEVIEW TSB (CAMERA LIKE ROBLOX)
+-- =======================================================
+
+local function startView(targetPlayer)
+    if targetPlayer ~= player and targetPlayer.Character then
+        viewingTarget = targetPlayer
+        targetPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart") or targetPlayer.Character:FindFirstChild("UpperTorso")
+        
+        if targetPart then
+            Camera.CameraType = Enum.CameraType.Scriptable
+            -- Reset posisi kamera ke default
+            targetOffset = Vector3.new(0, 2, -8)
+            cameraOffset = targetOffset
+            targetZoom = 8
+            currentZoom = 8
+            smoothRotationX = 0
+            smoothRotationY = 0
+            isDragging = false
+        end
+    end
+end
+
+local function stopView()
+    viewingTarget = nil
+    targetPart = nil
+    Camera.CameraType = Enum.CameraType.Custom
+    if player.Character then
+        local humanoid = player.Character:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            Camera.CameraSubject = humanoid
+        end
+    end
+    isDragging = false
+    UIS.MouseBehavior = Enum.MouseBehavior.Default
+    UIS.MouseIconEnabled = true
+end
+
+-- Input untuk mulai drag (tahan kanan mouse)
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if viewingTarget and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isDragging = true
+        lastMousePosition = UIS:GetMouseLocation()
+        
+        -- Sembunyikan kursor dan kunci di tengah (seperti Roblox)
+        UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UIS.MouseIconEnabled = false
+    end
+end)
+
+-- Input untuk stop drag
+UIS.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isDragging = false
+        lastMousePosition = nil
+        smoothRotationX = 0
+        smoothRotationY = 0
+        
+        -- Kembalikan kursor ke normal
+        UIS.MouseBehavior = Enum.MouseBehavior.Default
+        UIS.MouseIconEnabled = true
+    end
+end)
+
+-- Input untuk rotasi kamera (dengan mouse lock dan smoothing)
+UIS.InputChanged:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if isDragging and viewingTarget and input.UserInputType == Enum.UserInputType.MouseMovement then
+        -- Di Roblox, saat mouse lock, kita gunakan delta pergerakan
+        local delta = Vector2.new(input.Delta.x, input.Delta.y)
+        
+        -- Smooth delta untuk pergerakan lebih licin
+        smoothRotationX = smoothRotationX + (delta.X - smoothRotationX) * 0.3
+        smoothRotationY = smoothRotationY + (delta.Y - smoothRotationY) * 0.3
+        
+        -- Rotasi horizontal (kiri/kanan) dengan sensitivitas lebih licin
+        local horizontalRotation = CFrame.Angles(0, -math.rad(smoothRotationX * mouseSensitivity), 0)
+        targetOffset = horizontalRotation * targetOffset
+        
+        -- Rotasi vertikal (atas/bawah) dengan sensitivitas lebih licin
+        local rightVector = targetOffset:Cross(Vector3.new(0, 1, 0)).Unit
+        if rightVector.Magnitude > 0.1 then
+            local verticalRotation = CFrame.fromAxisAngle(rightVector, math.rad(smoothRotationY * mouseSensitivity))
+            local newOffset = verticalRotation * targetOffset
+            
+            -- Batasi rotasi vertikal agar tidak terbalik (lebih longgar)
+            if newOffset.Y > -8 and newOffset.Y < 10 then
+                targetOffset = newOffset
+            end
+        end
+    end
+end)
+
+-- Smooth zoom dengan scroll wheel
+UIS.InputChanged:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if viewingTarget and input.UserInputType == Enum.UserInputType.MouseWheel then
+        -- Target zoom berubah dengan smoothing
+        local zoomChange = input.Position.Z * 1.5
+        
+        -- Smooth target zoom
+        targetZoom = targetZoom - zoomChange
+        
+        -- Batasi zoom minimal dan maksimal
+        if targetZoom < 1.5 then
+            targetZoom = 1.5
+        elseif targetZoom > 35 then
+            targetZoom = 35
+        end
+    end
+end)
+
+-- Smoothing untuk zoom dan update kamera setiap frame
+RunService.RenderStepped:Connect(function()
+    if viewingTarget and viewingTarget.Character then
+        targetPart = viewingTarget.Character:FindFirstChild("HumanoidRootPart") or viewingTarget.Character:FindFirstChild("UpperTorso")
+        
+        if targetPart then
+            -- Smooth zoom transition (lebih licin)
+            currentZoom = currentZoom + (targetZoom - currentZoom) * zoomSpeed
+            
+            -- Update offset dengan zoom yang sudah di-smooth
+            local direction = targetOffset.Unit
+            cameraOffset = direction * currentZoom
+            
+            -- Hitung posisi kamera
+            local cameraPosition = targetPart.Position + cameraOffset
+            
+            -- Buat CFrame kamera yang melihat ke target
+            local cameraCFrame = CFrame.lookAt(cameraPosition, targetPart.Position)
+            
+            -- Terapkan ke kamera
+            Camera.CFrame = cameraCFrame
+        end
+    end
+end)
 
 -- =======================================================
 -- INSTANT KILL SYSTEM
@@ -631,23 +790,6 @@ local function stopOrbit()
     end
     isOrbiting = false
     lastOrbitTarget = nil
-end
-
--- View Functions
-local function startView(targetPlayer)
-    if targetPlayer ~= player and targetPlayer.Character then
-        viewingTarget = targetPlayer
-        isViewing = true
-        Camera.CameraType = Enum.CameraType.Scriptable
-    end
-end
-
-local function stopView()
-    viewingTarget = nil
-    isViewing = false
-    Camera.CameraType = Enum.CameraType.Custom
-    local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
-    if hum then Camera.CameraSubject = hum end
 end
 
 -- Auto Skill Functions
@@ -1073,18 +1215,6 @@ local function rejoinServer()
         end
     end)
 end
-
--- =======================================================
--- VIEW LOGIC (RENDER-STEPPED)
--- =======================================================
-RunService.RenderStepped:Connect(function()
-    if viewingTarget and viewingTarget.Character then
-        local part = viewingTarget.Character:FindFirstChild("HumanoidRootPart") or viewingTarget.Character:FindFirstChild("UpperTorso")
-        if part then
-            Camera.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, -8), part.Position)
-        end
-    end
-end)
 
 -- =======================================================
 -- UI COMPONENTS - FLING TAB UPDATED
